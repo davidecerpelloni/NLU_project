@@ -27,14 +27,14 @@ def train_loop(data_loader, optimizer, criterion_slots, criterion_intents, model
     for batch in data_loader:
         optimizer.zero_grad()  # Zeroing the gradient
 
-        input_ids = batch['input_ids'].to(device)
+        input_ids = batch['utterance'].to(device)
         attention_mask = batch['attention_mask'].to(device)
         token_type_ids = batch['token_type_ids'].to(device)
         slot_labels = batch['slots'].to(device)
         intent_labels = batch['intents'].to(device)
 
         # Forward pass
-        intent_logits, slot_logits = model(input_ids, attention_mask, token_type_ids, intent_labels, slot_labels)
+        slot_logits, intent_logits = model(input_ids, attention_mask)
         
         # Compute loss
         loss_intent = criterion_intents(intent_logits, intent_labels)
@@ -107,53 +107,7 @@ def eval_loop_old(data, criterion_slots, criterion_intents, model, lang): #eval 
                                           zero_division=False, output_dict=True)
     return results, report_intent, loss_array
 
-def eval_loop_less(data_loader, criterion_slots, criterion_intents, model, slot2id, intent2id):
-    model.eval()
-    loss_array = []
-
-    ref_intents = []
-    hyp_intents = []
-
-    ref_slots = []
-    hyp_slots = []
-
-    with torch.no_grad(): 
-        for batch in data_loader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            token_type_ids = batch['token_type_ids'].to(device)
-            slot_labels = batch['slots'].to(device)
-            intent_labels = batch['intents'].to(device)
-
-            slots, intents = model(input_ids, attention_mask, token_type_ids)
-
-            # Compute losses
-            loss_intent = criterion_intents(intents, intent_labels)
-            loss_slot = criterion_slots(slots.view(-1, model.num_slot_labels), slot_labels.view(-1))
-            loss = loss_intent + loss_slot
-            loss_array.append(loss.item())
-
-            # Intent inference
-            out_intents = [intent2id[x] for x in torch.argmax(intents, dim=1).tolist()]
-            gt_intents = intent_labels.tolist()
-            ref_intents.extend(gt_intents)
-            hyp_intents.extend(out_intents)
-
-            # Slot inference
-            for idx, (seq, seq_len) in enumerate(zip(slots, batch['slots_len'])):
-                seq = seq[:seq_len]  # Remove padding
-                output_slots = torch.argmax(seq, dim=1)
-                utterance = [id2word[token_id] for token_id in input_ids[idx][:seq_len].tolist()]
-                hyp_slots.append([(utterance[id_el], slot2id[elem]) for id_el, elem in enumerate(output_slots.tolist())])
-                ref_slots.append([(utterance[id_el], slot2id[elem]) for id_el, elem in enumerate(slot_labels[idx][:seq_len].tolist())])
-
-    # Calculate evaluation metrics
-    results = evaluate(ref_slots, hyp_slots)
-    report_intent = classification_report(ref_intents, hyp_intents, zero_division=False, output_dict=True)
-
-    return results, report_intent, loss_array
-
-def eval_loop(data, criterion_slots, criterion_intents, model, lang):
+def eval_loop_lessold(data, criterion_slots, criterion_intents, model, lang):
     model.eval()
     loss_array = []
 
@@ -165,6 +119,8 @@ def eval_loop(data, criterion_slots, criterion_intents, model, lang):
 
     with torch.no_grad():
         for sample in data:
+            print(sample)
+
             # Move tensors to the same device as the model
             sample = {k: v.to(model.device) if isinstance(v, torch.Tensor) else v for k, v in sample.items()}
             
@@ -173,7 +129,7 @@ def eval_loop(data, criterion_slots, criterion_intents, model, lang):
             
             # Compute losses
             loss_intent = criterion_intents(intents, sample['intents'])
-            loss_slot = criterion_slots(slots.view(-1, slots.size(-1)), sample['slots'].view(-1))
+            loss_slot = criterion_slots(slots.reshape(-1, slots.size(-1)), sample['slots'].reshape(-1))
             loss = loss_intent + loss_slot
             loss_array.append(loss.item())
             
@@ -210,6 +166,144 @@ def eval_loop(data, criterion_slots, criterion_intents, model, lang):
     report_intent = classification_report(ref_intents, hyp_intents, zero_division=False, output_dict=True)
     return results, report_intent, loss_array
 
+def eval_loop(data_loader, criterion_slots, criterion_intents, model, lang):
+    model.eval()
+    loss_array = []
+
+    ref_intents = []
+    hyp_intents = []
+
+    ref_slots = []
+    hyp_slots = []
+
+    with torch.no_grad():
+        for sample in data_loader:
+            # Move tensors to the same device as the model
+            sample = {k: v.to(model.device) if isinstance(v, torch.Tensor) else v for k, v in sample.items()}
+            
+            # Forward pass
+            slots, intents = model(sample['utterance'], sample['attention_mask'])
+
+            # Compute losses
+            print(f"intents shape: {intents.shape}, target intents shape: {sample['intents'].shape}")
+            print(f"slots shape: {slots.shape}, target slots shape: {sample['slots'].shape}")
+            
+            loss_intent = criterion_intents(intents, sample['intents'])
+
+            # Reshape slots and targets using reshape
+            # slot_logits_flat = slots.reshape(-1, slots.size(-1))
+            # slot_labels_flat = sample['slots'].reshape(-1)
+            batch_size, seq_len, num_slots = slots.size()
+            slot_logits_flat = slots.reshape(-1, num_slots)  # Flatten the slots tensor
+            slot_labels_flat = sample['slots'].reshape(-1)  
+            
+            print(f"slot_logits_flat shape: {slot_logits_flat.shape}, slot_labels_flat shape: {slot_labels_flat.shape}")
+            
+            loss_slot = criterion_slots(slots, sample['slots'])
+            loss = loss_intent + loss_slot
+            loss_array.append(loss.item())
+
+            # Intent inference
+            out_intents = [lang.id2intent[x] for x in torch.argmax(intents, dim=1).tolist()]
+            gt_intents = [lang.id2intent[x] for x in sample['intents'].tolist()]
+            ref_intents.extend(gt_intents)
+            hyp_intents.extend(out_intents)
+
+            # Slot inference
+            output_slots = torch.argmax(slots, dim=-1)
+            for id_seq, seq in enumerate(output_slots):
+                length = sample['attention_mask'][id_seq].sum().item()  # Length of the actual content
+                utt_ids = sample['utterance'][id_seq][:length].tolist()
+                gt_ids = sample['slots'][id_seq][:length].tolist()
+                gt_slots = [lang.id2slot[elem] for elem in gt_ids]
+                utterance = [lang.id2word[elem] for elem in utt_ids]
+                to_decode = seq[:length].tolist()
+                ref_slots.append([(utterance[id_el], elem) for id_el, elem in enumerate(gt_slots)])
+                tmp_seq = [(utterance[id_el], lang.id2slot[elem]) for id_el, elem in enumerate(to_decode)]
+                hyp_slots.append(tmp_seq)
+
+    try:
+        results = evaluate(ref_slots, hyp_slots)
+    except Exception as ex:
+        print("Warning:", ex)
+        ref_s = set([x[1] for x in ref_slots])
+        hyp_s = set([x[1] for x in hyp_slots])
+        print(hyp_s.difference(ref_s))
+        results = {"total": {"f": 0}}
+
+    report_intent = classification_report(ref_intents, hyp_intents, zero_division=False, output_dict=True)
+    return results, report_intent, loss_array
+
+def eval_loop_alessia(data, criterion_slots, criterion_intents, model, lang, tokenizer):
+    model.eval()
+    loss_array = []
+
+    ref_intents = []
+    hyp_intents = []
+
+    ref_slots = []
+    hyp_slots = []
+    #softmax = nn.Softmax(dim=1) # Use Softmax if you need the actual probability
+    with torch.no_grad(): # It used to avoid the creation of computational graph
+        for sample in data:
+            inputs = {'input_ids': sample['utterance'].to(device),
+                  'attention_mask': sample['attention_mask'].to(device)}
+        
+            slots, intents = model(inputs)
+            loss_intent = criterion_intents(intents, sample['intents'])
+            loss_slot = criterion_slots(slots, sample['y_slots'])
+            loss = loss_intent + loss_slot
+            loss_array.append(loss.item())
+            # Intent inference
+            # Get the highest probable class
+            out_intents = [lang.id2intent[x]
+                           for x in torch.argmax(intents, dim=1).tolist()]
+            gt_intents = [lang.id2intent[x] for x in sample['intents'].tolist()]
+            ref_intents.extend(gt_intents)
+            hyp_intents.extend(out_intents)
+
+            # Slot inference
+            output_slots = torch.argmax(slots, dim=1)
+            for id_seq, seq in enumerate(output_slots):
+                length = sample['slots_len'].tolist()[id_seq]
+                #tokenizer.convert_ids_to_tokens(input_prova["input_ids"][0]))
+                utterance = tokenizer.convert_ids_to_tokens(sample['input_ids'][id_seq])
+
+                # utt_ids = sample['utterance'][id_seq][:length].tolist()
+                gt_ids = sample['y_slots'][id_seq].tolist()
+                gt_slots = [lang.id2slot[elem] for elem in gt_ids[:length]]
+                #utterance = [lang.id2word[elem] for elem in utt_ids]
+                to_decode = seq[:length].tolist()
+                tmp_ref_slots = []
+                tmp_tmp_seq = []
+                #ref_slots.append([(utterance[id_el], elem) for id_el, elem in enumerate(gt_slots)])
+                tmp_ref_slots.append([(utterance[id_el], elem) for id_el, elem in enumerate(gt_slots)])
+                for id_el, elem in enumerate(to_decode):
+                    tmp_tmp_seq.append((utterance[id_el], lang.id2slot[elem]))
+
+                # remove pad tokens
+                ok_ref_slots = []
+                ok_tmp_seq = []
+                for i in range(len(tmp_ref_slots[0])):
+                    if tmp_ref_slots[0][i][1] != 'pad':
+                        ok_ref_slots.append(tmp_ref_slots[0][i])
+                        ok_tmp_seq.append(tmp_tmp_seq[i])
+                
+                ref_slots.append(ok_ref_slots)
+                hyp_slots.append(ok_tmp_seq)
+    try:
+        results = evaluate(ref_slots, hyp_slots)
+    except Exception as ex:
+        # Sometimes the model predicts a class that is not in REF
+        print("Warning:", ex)
+        ref_s = set([x[1] for x in ref_slots])
+        hyp_s = set([x[1] for x in hyp_slots])
+        print(hyp_s.difference(ref_s))
+        results = {"total":{"f":0}}
+
+    report_intent = classification_report(ref_intents, hyp_intents,
+                                          zero_division=False, output_dict=True)
+    return results, report_intent, loss_array
 
 def init_weights(mat):
     for n, m in mat.named_modules():

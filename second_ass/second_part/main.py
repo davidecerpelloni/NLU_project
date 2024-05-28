@@ -29,8 +29,8 @@ PAD_TOKEN = 0
 # tmp_train_raw = load_data(os.path.join('dataset','ATIS','train.json'))
 # test_raw = load_data(os.path.join('dataset','ATIS','test.json'))
 
-tmp_train_raw = load_data(os.path.join('Project','second_ass','second_part','dataset','ATIS','train.json'))
-test_raw = load_data(os.path.join('Project','second_ass','second_part','dataset','ATIS','test.json'))
+tmp_train_raw = load_data(os.path.join('dataset','ATIS','train.json'))
+test_raw = load_data(os.path.join('dataset','ATIS','test.json'))
 
 print('Train samples:', len(tmp_train_raw))
 print('Test samples:', len(test_raw))
@@ -122,7 +122,7 @@ test_loader = DataLoader(test_tokenized, batch_size=64, collate_fn=collate_fn)
 hid_size = 250
 emb_size = 300
 
-lr = 0.0004 # learning rate
+lr = 5e-5 # learning rate
 clip = 5 # Clip the gradient
 
 #model = ModelIAS(hid_size, out_slot, out_int, emb_size, vocab_len, pad_index=PAD_TOKEN).to(device)
@@ -138,7 +138,7 @@ patience = 3
 losses_train = []
 losses_dev = []
 sampled_epochs = []
-best_f1 = 0
+best_f1 = -1
 for x in tqdm(range(1,n_epochs)):
     loss = train_loop(train_loader, optimizer, criterion_slots,
                       criterion_intents, model, device, clip=clip)
@@ -146,7 +146,7 @@ for x in tqdm(range(1,n_epochs)):
         sampled_epochs.append(x)
         losses_train.append(np.asarray(loss).mean())
         results_dev, intent_res, loss_dev = eval_loop(dev_loader, criterion_slots,
-                                                      criterion_intents, model, tokenizer)
+                                                      criterion_intents, model, lang)
         losses_dev.append(np.asarray(loss_dev).mean())
 
         f1 = results_dev['total']['f']

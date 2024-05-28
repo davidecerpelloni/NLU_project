@@ -83,7 +83,7 @@ def collate_fn(batch):
     padded_slots = pad_sequences(slots, pad_token=0)  # Assuming 0 is the pad token for slots
     padded_input_ids = pad_sequences(input_ids, pad_token=0)  # Assuming 0 is the pad token for input_ids
     padded_attention_masks = pad_sequences(attention_masks, pad_token=0)
-    #padded_token_type_ids = pad_sequences(token_type_ids, pad_token=0)
+    padded_token_type_ids = pad_sequences(token_type_ids, pad_token=0)
 
     # Creating the final dictionary to return
     batch_dict = {
@@ -92,7 +92,7 @@ def collate_fn(batch):
         'intents': intents,
         'utterance': padded_input_ids,
         'attention_mask': padded_attention_masks,
-        #'token_type_ids': padded_token_type_ids
+        'token_type_ids': padded_token_type_ids
     }
 
     return batch_dict
@@ -100,7 +100,7 @@ def collate_fn(batch):
 class Lang():
     def __init__(self, tokenizer, words, intents, slots, cutoff=0):
         self.tokenizer = tokenizer
-        self.word2id = self.w2id(words, cutoff=cutoff, unk=True)
+        self.word2id = {token: idx for idx, token in enumerate(self.tokenizer.vocab.keys())}
         self.slot2id = self.lab2id(slots)
         self.intent2id = self.lab2id(intents, pad=False)
         self.id2word = {v:k for k, v in self.word2id.items()}
@@ -245,48 +245,6 @@ class TokenizeUtt(torch.utils.data.Dataset):
     def get_intent2id(self):
         return self.intent2id
 
-    # def __getitem2__(self, idx):
-    #     utterance = self.utterances[idx]
-    #     slot = self.slots[idx]
-    #     intent = self.intents[idx]
-                
-    #     words = utterance.split()
-    #     slot_labels = slot.split()
-
-    #     tokens = []
-    #     label_ids = []
-
-    #     for word, slot in zip(words, slot_labels):
-    #         # Tokenize the word
-    #         word_tokens = self.tokenizer.tokenize(word)
-    #         tokens.extend(word_tokens)
-
-    #         # Assign the slot to the first token and 'pad' to the rest
-    #         label_ids.append(slot)
-    #         label_ids.extend(['pad'] * (len(word_tokens) - 1))
-
-    #     # Add [CLS] and [SEP] tokens and their corresponding slot labels
-    #     tokens = ['[CLS]'] + tokens + ['[SEP]']
-    #     label_ids = ['pad'] + label_ids + ['pad']
-
-    #     # Convert tokens to token IDs
-    #     input_ids = self.tokenizer.convert_tokens_to_ids(tokens)
-        
-    #     # Create attention mask (1 for real tokens, 0 for padding)
-    #     attention_mask = [1] * len(input_ids)
-        
-    #     # Token type IDs (not used for single-sequence inputs)
-    #     token_type_ids = [0] * len(input_ids)
-
-    #     return {
-    #         'utterance': utterance,
-    #         'new_slots' : label_ids,
-    #         'intent' : intent,
-    #         'input_ids': torch.tensor(input_ids, dtype=torch.long),
-    #         'attention_mask': torch.tensor(attention_mask, dtype=torch.long),
-    #         'token_type_ids': torch.tensor(token_type_ids, dtype=torch.long),
-    #     }
-
     def __getitem__(self, idx):
         utterance = self.utterances[idx]
         slot = self.slots[idx]
@@ -328,7 +286,7 @@ class TokenizeUtt(torch.utils.data.Dataset):
             'intent': torch.tensor(intent_id,dtype=torch.long),
             'utterance': torch.tensor(input_ids, dtype=torch.long),
             'attention_mask': torch.tensor(attention_mask, dtype=torch.long),
-            #'token_type_ids': torch.tensor(token_type_ids, dtype=torch.long),
+            'token_type_ids': torch.tensor(token_type_ids, dtype=torch.long),
         }
 
   
