@@ -10,9 +10,9 @@ import numpy as np
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-train_raw = read_file("Project/first_ass/first_part/dataset/PennTreeBank/ptb.train.txt")
-dev_raw = read_file("Project/first_ass/first_part/dataset/PennTreeBank/ptb.valid.txt")
-test_raw = read_file("Project/first_ass/first_part/dataset/PennTreeBank/ptb.test.txt")
+train_raw = read_file("dataset/PennTreeBank/ptb.train.txt")
+dev_raw = read_file("dataset/PennTreeBank/ptb.valid.txt")
+test_raw = read_file("dataset/PennTreeBank/ptb.test.txt")
 
 vocab = get_vocab(train_raw, ["<pad>", "<eos>"])
 

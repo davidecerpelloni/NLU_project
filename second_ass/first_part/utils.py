@@ -120,9 +120,11 @@ def collate_fn(data):
     y_slots = y_slots.to(device)
     intent = intent.to(device)
     y_lengths = torch.LongTensor(y_lengths).to(device)
-
+    
     new_item["utterances"] = src_utt
     new_item["intents"] = intent
     new_item["y_slots"] = y_slots
     new_item["slots_len"] = y_lengths
+    print(new_item["slots_len"].shape)
+    exit()
     return new_item

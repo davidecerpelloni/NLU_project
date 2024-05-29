@@ -19,8 +19,8 @@ PAD_TOKEN = 0
 
 # tmp_train_raw = load_data(os.path.join('dataset','ATIS','train.json'))
 # test_raw = load_data(os.path.join('dataset','ATIS','test.json'))
-tmp_train_raw = load_data(os.path.join('Project','second_ass','first_part','dataset','ATIS','train.json'))
-test_raw = load_data(os.path.join('Project','second_ass','first_part','dataset','ATIS','test.json'))
+tmp_train_raw = load_data(os.path.join('dataset','ATIS','train.json'))
+test_raw = load_data(os.path.join('dataset','ATIS','test.json'))
 
 print('Train samples:', len(tmp_train_raw))
 print('Test samples:', len(test_raw))

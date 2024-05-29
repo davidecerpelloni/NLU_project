@@ -92,3 +92,128 @@ def init_weights(mat):
                 torch.nn.init.uniform_(m.weight, -0.01, 0.01)
                 if m.bias != None:
                     m.bias.data.fill_(0.01)
+
+def eval_loop_alessia(data, criterion_slots, criterion_intents, model, lang, tokenizer):
+    model.eval()
+    loss_array = []
+
+    ref_intents = []
+    hyp_intents = []
+
+    ref_slots = []
+    hyp_slots = []
+    #softmax = nn.Softmax(dim=1) # Use Softmax if you need the actual probability
+    with torch.no_grad(): # It used to avoid the creation of computational graph
+        for sample in data:
+            inputs = {'input_ids': sample['utterance'].to(device),
+                  'attention_mask': sample['attention_mask'].to(device)}
+        
+            slots, intents = model(inputs)
+            loss_intent = criterion_intents(intents, sample['intents'])
+            loss_slot = criterion_slots(slots, sample['y_slots'])
+            loss = loss_intent + loss_slot
+            loss_array.append(loss.item())
+            # Intent inference
+            # Get the highest probable class
+            out_intents = [lang.id2intent[x]
+                           for x in torch.argmax(intents, dim=1).tolist()]
+            gt_intents = [lang.id2intent[x] for x in sample['intents'].tolist()]
+            ref_intents.extend(gt_intents)
+            hyp_intents.extend(out_intents)
+
+            # Slot inference
+            output_slots = torch.argmax(slots, dim=1)
+            for id_seq, seq in enumerate(output_slots):
+                length = sample['slots_len'].tolist()[id_seq]
+                #tokenizer.convert_ids_to_tokens(input_prova["input_ids"][0]))
+                utterance = tokenizer.convert_ids_to_tokens(sample['input_ids'][id_seq])
+
+                # utt_ids = sample['utterance'][id_seq][:length].tolist()
+                gt_ids = sample['y_slots'][id_seq].tolist()
+                gt_slots = [lang.id2slot[elem] for elem in gt_ids[:length]]
+                #utterance = [lang.id2word[elem] for elem in utt_ids]
+                to_decode = seq[:length].tolist()
+                tmp_ref_slots = []
+                tmp_tmp_seq = []
+                #ref_slots.append([(utterance[id_el], elem) for id_el, elem in enumerate(gt_slots)])
+                tmp_ref_slots.append([(utterance[id_el], elem) for id_el, elem in enumerate(gt_slots)])
+                for id_el, elem in enumerate(to_decode):
+                    tmp_tmp_seq.append((utterance[id_el], lang.id2slot[elem]))
+
+                # remove pad tokens
+                ok_ref_slots = []
+                ok_tmp_seq = []
+                for i in range(len(tmp_ref_slots[0])):
+                    if tmp_ref_slots[0][i][1] != 'pad':
+                        ok_ref_slots.append(tmp_ref_slots[0][i])
+                        ok_tmp_seq.append(tmp_tmp_seq[i])
+                
+                ref_slots.append(ok_ref_slots)
+                hyp_slots.append(ok_tmp_seq)
+    try:
+        results = evaluate(ref_slots, hyp_slots)
+    except Exception as ex:
+        # Sometimes the model predicts a class that is not in REF
+        print("Warning:", ex)
+        ref_s = set([x[1] for x in ref_slots])
+        hyp_s = set([x[1] for x in hyp_slots])
+        print(hyp_s.difference(ref_s))
+        results = {"total":{"f":0}}
+
+    report_intent = classification_report(ref_intents, hyp_intents,
+                                          zero_division=False, output_dict=True)
+    return results, report_intent, loss_array
+
+def eval_loop_old(data, criterion_slots, criterion_intents, model, lang): #eval not taken padding
+    model.eval()
+    loss_array = []
+
+    ref_intents = []
+    hyp_intents = []
+
+    ref_slots = []
+    hyp_slots = []
+    #softmax = nn.Softmax(dim=1) # Use Softmax if you need the actual probability
+    with torch.no_grad(): # It used to avoid the creation of computational graph
+        for sample in data:
+            slots, intents = model(sample['utterances'], sample['slots_len'])
+            loss_intent = criterion_intents(intents, sample['intents'])
+            loss_slot = criterion_slots(slots, sample['y_slots'])
+            loss = loss_intent + loss_slot
+            loss_array.append(loss.item())
+            # Intent inference
+            # Get the highest probable class name
+            out_intents = [lang.id2intent[x]
+                            for x in torch.argmax(intents, dim=1).tolist()]
+            gt_intents = [lang.id2intent[x] 
+                            for x in sample['intents'].tolist()]
+            ref_intents.extend(gt_intents)
+            hyp_intents.extend(out_intents)
+
+            # Slot inference
+            output_slots = torch.argmax(slots, dim=1)
+            for id_seq, seq in enumerate(output_slots):
+                length = sample['slots_len'].tolist()[id_seq]
+                utt_ids = sample['utterance'][id_seq][:length].tolist()
+                gt_ids = sample['y_slots'][id_seq].tolist()
+                gt_slots = [lang.id2slot[elem] for elem in gt_ids[:length]]
+                utterance = [lang.id2word[elem] for elem in utt_ids]
+                to_decode = seq[:length].tolist()
+                ref_slots.append([(utterance[id_el], elem) for id_el, elem in enumerate(gt_slots)])
+                tmp_seq = []
+                for id_el, elem in enumerate(to_decode):
+                    tmp_seq.append((utterance[id_el], lang.id2slot[elem]))
+                hyp_slots.append(tmp_seq)
+    try:
+        results = evaluate(ref_slots, hyp_slots)
+    except Exception as ex:
+        # Sometimes the model predicts a class that is not in REF
+        print("Warning:", ex)
+        ref_s = set([x[1] for x in ref_slots])
+        hyp_s = set([x[1] for x in hyp_slots])
+        print(hyp_s.difference(ref_s))
+        results = {"total":{"f":0}}
+
+    report_intent = classification_report(ref_intents, hyp_intents,
+                                          zero_division=False, output_dict=True)
+    return results, report_intent, loss_array
